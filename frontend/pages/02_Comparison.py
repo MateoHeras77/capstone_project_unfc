@@ -25,8 +25,7 @@ st.subheader("Select or Add Assets")
 
 selected_symbols = st.multiselect(
     "Choose from existing assets",
-    options=existing_symbols,
-    default=existing_symbols[:2] if len(existing_symbols) >= 2 else existing_symbols
+    options=existing_symbols
 )
 
 # Custom symbol input
