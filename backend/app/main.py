@@ -1,9 +1,26 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from ..core.database import get_supabase_client
 from ..data_engine.data_coordinator import DataCoordinator
 
 app = FastAPI(title="Investment Analytics API")
+
+# Allow Streamlit (usually localhost:8501) and Vite (localhost:5173) just in case
+origins = [
+    "http://localhost:8501",
+    "http://localhost:5173",
+    "http://127.0.0.1:8501"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 coordinator = DataCoordinator()
 
 @app.get("/")
