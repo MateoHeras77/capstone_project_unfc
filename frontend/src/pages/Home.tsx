@@ -12,7 +12,11 @@ export default function Home() {
 
       <p>
         Find tickers on{" "}
-        <a href="https://ca.finance.yahoo.com/" target="_blank">
+        <a
+          href="https://ca.finance.yahoo.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           Yahoo Finance
         </a>
       </p>
