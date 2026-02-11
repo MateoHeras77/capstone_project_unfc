@@ -42,16 +42,17 @@ app = FastAPI(
 # -----------------------------------------------------------------------------
 # CORS Configuration
 # -----------------------------------------------------------------------------
-# Allow requests from Streamlit and potential other frontends
-origins = [
-    "http://localhost:8501",    # Streamlit default
-    "http://localhost:5173",    # Vite (if used later)
-    "http://127.0.0.1:8501"
-]
 
+# Allow requests from production and local development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[
+        "https://capstone-project-unfc.vercel.app",  # Production frontend
+        "http://localhost:5173",    # Vite local
+        "http://localhost:8501",    # Streamlit local
+        "http://127.0.0.1:8501",
+        "http://127.0.0.1:5173"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
