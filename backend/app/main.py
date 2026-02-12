@@ -26,6 +26,7 @@ Use these endpoints to retrieve data for your models:
 =============================================================================
 """
 
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
@@ -46,8 +47,15 @@ app = FastAPI(
 origins = [
     "http://localhost:8501",    # Streamlit default
     "http://localhost:5173",    # Vite (if used later)
-    "http://127.0.0.1:8501"
+    "http://127.0.0.1:8501",
+    "https://capstone-project-unfc-ashen.vercel.app",
+    "https://capstone-project-unfc.vercel.app"
 ]
+
+# Add deployed frontend URL if provided
+frontend_url = os.environ.get("FRONTEND_URL")
+if frontend_url:
+    origins.append(frontend_url)
 
 app.add_middleware(
     CORSMiddleware,
