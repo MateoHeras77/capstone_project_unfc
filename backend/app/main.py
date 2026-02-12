@@ -47,7 +47,9 @@ app = FastAPI(
 origins = [
     "http://localhost:8501",    # Streamlit default
     "http://localhost:5173",    # Vite (if used later)
-    "http://127.0.0.1:8501"
+    "http://127.0.0.1:8501",
+    "https://capstone-project-unfc-ashen.vercel.app",
+    "https://capstone-project-unfc.vercel.app"
 ]
 
 # Add deployed frontend URL if provided

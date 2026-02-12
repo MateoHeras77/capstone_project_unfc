@@ -7,12 +7,29 @@ import { DataPreview } from "../components/DataPreview";
 import { PriceChart } from "../components/PriceChart";
 import { Search } from "lucide-react";
 
+interface Asset {
+  id: string;
+  symbol: string;
+  name: string;
+  asset_type: string;
+  last_updated: string;
+}
+
+interface Price {
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
 export default function SingleAsset() {
-  const [assets, setAssets] = useState<any[]>([]);
+  const [assets, setAssets] = useState<Asset[]>([]);
   const [selected, setSelected] = useState("");
   const [customSymbol, setCustomSymbol] = useState("");
   const [assetType] = useState<"stock" | "crypto">("stock");
-  const [prices, setPrices] = useState<any[]>([]);
+  const [prices, setPrices] = useState<Price[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -20,12 +37,16 @@ export default function SingleAsset() {
   }, []);
 
   const symbol = customSymbol || selected;
-  //const isNew = symbol && !assets.find((a) => a.symbol === symbol);
 
   const handleSync = async () => {
     if (!symbol) return;
     setLoading(true);
     await syncAsset(symbol, assetType);
+    
+    // Refresh the asset list so the new symbol appears in dropdown
+    const updatedAssets = await getAssets();
+    setAssets(updatedAssets);
+    
     setLoading(false);
     getPrices(symbol).then(setPrices);
   };
