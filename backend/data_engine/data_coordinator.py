@@ -115,6 +115,80 @@ class DataCoordinator:
         except Exception as e:
             logger.error(f"Error upserting data: {e}")
 
+    def get_historical_prices(
+        self, 
+        symbol: str,
+        limit: Optional[int] = None
+    ) -> Optional[pd.Series]:
+        """
+        Retrieves historical price data for a symbol from Supabase.
+        
+        This method is used by forecasting models to retrieve cached prices.
+        
+        Args:
+            symbol: The ticker symbol (e.g., 'AAPL', 'BTC-USD')
+            limit: Maximum number of records to retrieve. If None, gets all.
+                  Use limit=104 for ~2 years of weekly data.
+            
+        Returns:
+            pandas Series with DatetimeIndex (sorted oldest to newest) and
+            closing prices as values. Returns None if no data found.
+            
+        Example:
+            prices = coordinator.get_historical_prices("AAPL", limit=104)
+            # Returns: Series with dates and OHLCV data
+        """
+        try:
+            # Step 1: Get asset ID
+            asset_res = self.supabase.table("assets").select("id").eq(
+                "symbol", symbol
+            ).execute()
+            
+            if not asset_res.data:
+                logger.warning(f"Asset {symbol} not found in database")
+                return None
+            
+            asset_id = asset_res.data[0]['id']
+            
+            # Step 2: Query historical prices sorted by timestamp
+            query = self.supabase.table("historical_prices").select(
+                "timestamp, close_price"
+            ).eq("asset_id", asset_id).order("timestamp", desc=False)
+            
+            if limit:
+                query = query.limit(limit)
+            
+            price_res = query.execute()
+            
+            if not price_res.data:
+                logger.warning(f"No price data found for {symbol}")
+                return None
+            
+            # Step 3: Transform to pandas Series with DatetimeIndex
+            dates = []
+            prices = []
+            
+            for record in price_res.data:
+                dates.append(pd.to_datetime(record['timestamp']))
+                prices.append(float(record['close_price']))
+            
+            # Create Series with DatetimeIndex, sorted chronologically
+            series = pd.Series(
+                prices,
+                index=pd.DatetimeIndex(dates),
+                name=f"{symbol}_Close"
+            )
+            
+            logger.info(
+                f"Retrieved {len(series)} price records for {symbol} "
+                f"(from {series.index[0].date()} to {series.index[-1].date()})"
+            )
+            return series
+            
+        except Exception as e:
+            logger.error(f"Error retrieving prices for {symbol}: {e}")
+            return None
+
     def _get_or_create_asset(self, symbol: str, asset_type: str) -> Optional[str]:
         """
         Returns the UUID of the asset, creating it if it doesn't exist.

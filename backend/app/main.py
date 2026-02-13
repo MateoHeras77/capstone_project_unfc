@@ -27,7 +27,9 @@ Use these endpoints to retrieve data for your models:
 """
 
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel
+from typing import Dict
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from ..core.database import get_supabase_client
@@ -154,3 +156,121 @@ def sync_asset(symbol: str, asset_type: str = "stock"):
         return {"status": "success", "message": f"Synced {symbol}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --------------------------
+# Forecasting Endpoints
+# --------------------------
+
+
+class ForecastRequest(BaseModel):
+    symbol: str
+    model_type: str = "lstm"
+    periods: int = 4
+    confidence_level: float = 0.95
+
+
+class ForecastItem(BaseModel):
+    date: str
+    point_forecast: float
+    lower_bound: float
+    upper_bound: float
+
+
+class ForecastResponse(BaseModel):
+    symbol: str
+    model_type: str
+    confidence_level: float
+    forecasts: list[ForecastItem]
+    generated_at: str
+
+
+@app.get("/forecast/models/available")
+async def get_available_models():
+    try:
+        from backend.data_engine.forecasting.factory import ForecastingFactory
+
+        models = ForecastingFactory.list_available_models()
+        return {"models": models}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to retrieve available models")
+
+
+@app.post("/forecast/predict", response_model=ForecastResponse)
+async def predict_prices(req: ForecastRequest):
+    try:
+        # Lazy imports so server can start without heavy ML deps
+        from backend.data_engine.data_coordinator import DataCoordinator
+        from backend.data_engine.forecasting.factory import ForecastingFactory
+
+        coordinator = DataCoordinator()
+        prices = coordinator.get_historical_prices(req.symbol)
+
+        if prices is None or len(prices) == 0:
+            raise HTTPException(status_code=404, detail=f"No price data found for {req.symbol}")
+
+        forecaster = ForecastingFactory.create_forecaster(
+            model_type=req.model_type,
+            confidence_level=req.confidence_level
+        )
+        forecaster.fit(prices)
+        forecast_data = forecaster.forecast(periods=req.periods)
+
+        items = []
+        for d, p, l, u in zip(
+            forecast_data["dates"],
+            forecast_data["point_forecast"],
+            forecast_data["lower_bound"],
+            forecast_data["upper_bound"],
+        ):
+            items.append(ForecastItem(date=d, point_forecast=p, lower_bound=l, upper_bound=u))
+
+        return ForecastResponse(
+            symbol=req.symbol,
+            model_type=req.model_type,
+            confidence_level=forecast_data.get("confidence_level", req.confidence_level),
+            forecasts=items,
+            generated_at=__import__('datetime').datetime.now().isoformat(),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/forecast/{symbol}")
+async def get_forecast(symbol: str, model_type: str = "lstm", periods: int = Query(4, ge=1, le=52)):
+    req = ForecastRequest(symbol=symbol, model_type=model_type, periods=periods)
+    return await predict_prices(req)
+
+
+@app.post("/forecast/train")
+async def train_model(symbol: str, model_type: str = "lstm"):
+    try:
+        from backend.data_engine.data_coordinator import DataCoordinator
+        from backend.data_engine.forecasting.factory import ForecastingFactory
+
+        coordinator = DataCoordinator()
+        coordinator.sync_asset(symbol, "stock")
+        prices = coordinator.get_historical_prices(symbol)
+        if prices is None:
+            raise HTTPException(status_code=400, detail=f"Could not retrieve price data for {symbol}")
+
+        forecaster = ForecastingFactory.create_forecaster(model_type)
+        forecaster.fit(prices)
+
+        return {"status": "success", "message": f"Model trained for {symbol}", "data_points": len(prices)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/forecast/models/{model_type}/info")
+async def get_model_info(model_type: str):
+    try:
+        from backend.data_engine.forecasting.factory import ForecastingFactory
+        return ForecastingFactory.get_model_info(model_type)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
