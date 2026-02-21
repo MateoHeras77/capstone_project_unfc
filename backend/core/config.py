@@ -80,10 +80,13 @@ class Settings(BaseSettings):
         origins: List[str] = [
             "http://localhost:5173",   # Vite / React dev server
             "http://127.0.0.1:5173",
+            "http://localhost:3000",   # alternate dev port
+            "http://127.0.0.1:3000",
             "http://localhost:8501",   # Streamlit (legacy)
             "http://127.0.0.1:8501",
             "https://capstone-project-unfc-ashen.vercel.app",
             "https://capstone-project-unfc.vercel.app",
+            "https://capstoneproject.swiftshift.digital",  # production
         ]
         if self.FRONTEND_URL:
             origins.append(self.FRONTEND_URL)
