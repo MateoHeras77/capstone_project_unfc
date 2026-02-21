@@ -1,6 +1,18 @@
 """
-Prophet Forecaster — Facebook's Prophet for time series forecasting.
+data_engine/forecasting/prophet_model.py — DEPRECATED shim.
+
+The canonical implementation has moved to
+``analytics/forecasting/prophet.py``.
+
+New code should use::
+
+    from analytics.forecasting.prophet import ProphetForecaster
 """
+
+from analytics.forecasting.prophet import ProphetForecaster  # noqa: F401
+
+__all__ = ["ProphetForecaster"]
+
 
 import logging
 from typing import Any, Dict, List

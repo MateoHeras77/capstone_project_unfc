@@ -1,92 +1,112 @@
 """
-=============================================================================
-APPLICATION CONFIGURATION - Centralised Settings
-=============================================================================
+core/config.py
+──────────────
+Centralised application settings via ``pydantic-settings``.
 
-Uses python-dotenv so values can be supplied via a root .env file or
-real environment variables (e.g. on Render).
+All configuration is driven by environment variables (or a ``.env`` file
+in the ``backend/`` directory).  ``pydantic-settings`` validates types at
+startup, so missing required values fail fast with a clear error message.
 
 Usage
 -----
-from backend.core.config import get_settings
+    from core.config import get_settings
 
-settings = get_settings()
-print(settings.SUPABASE_URL)
-=============================================================================
+    settings = get_settings()
+    print(settings.SUPABASE_URL)
 """
 
-import os
 from functools import lru_cache
 from pathlib import Path
 from typing import List
 
-from dotenv import load_dotenv
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Load .env from the backend/ directory (parent of core/), works from any cwd
+# Resolve the backend/ directory so relative .env paths work from any cwd.
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(dotenv_path=_BACKEND_DIR / ".env", override=False)
 
 
-class Settings:
+class Settings(BaseSettings):
     """
-    Centralised application settings loaded from environment variables.
+    Application settings loaded from environment variables / ``.env`` file.
 
     Attributes:
-        APP_TITLE (str): Human-readable API title shown in the OpenAPI docs.
-        APP_VERSION (str): Semver string for the current release.
-        DEBUG (bool): Enable debug/reload mode when running locally.
-        SUPABASE_URL (str): Supabase project URL.
-        SUPABASE_KEY (str): Supabase anon or service-role key.
-        FRONTEND_URL (str): Deployed frontend origin added to CORS allow-list.
-        CORS_ORIGINS (List[str]): Full list of allowed CORS origins.
+        APP_TITLE:       Human-readable API name shown in OpenAPI docs.
+        APP_VERSION:     Semantic version string.
+        APP_DESCRIPTION: Short description shown in the OpenAPI UI.
+        DEBUG:           Enable verbose logging and hot-reload.
+        SUPABASE_URL:    Supabase project URL (required).
+        SUPABASE_KEY:    Supabase anon or service-role key (required).
+        FRONTEND_URL:    Optional deployed frontend origin for CORS.
     """
 
-    # ------------------------------------------------------------------
-    # API metadata
-    # ------------------------------------------------------------------
+    model_config = SettingsConfigDict(
+        env_file=str(_BACKEND_DIR / ".env"),
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        # Extra env vars are ignored — don't raise on unexpected keys.
+        extra="ignore",
+    )
+
+    # ── API metadata ──────────────────────────────────────────────────────
     APP_TITLE: str = "Investment Analytics API"
     APP_VERSION: str = "0.2.0"
     APP_DESCRIPTION: str = (
-        "Backend API for the Educational Investment Platform. "
-        "Provides historical prices, sync, and forecasting endpoints."
+        "Backend for the Educational Investment Platform. "
+        "Provides historical prices, data sync, and forecasting endpoints."
     )
-    DEBUG: bool = os.environ.get("DEBUG", "false").lower() == "true"
 
-    # ------------------------------------------------------------------
-    # Supabase
-    # ------------------------------------------------------------------
-    SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "")
-    SUPABASE_KEY: str = os.environ.get("SUPABASE_KEY", "")
+    # ── Feature flags ─────────────────────────────────────────────────────
+    DEBUG: bool = False
 
-    # ------------------------------------------------------------------
-    # CORS
-    # ------------------------------------------------------------------
-    _DEFAULT_ORIGINS: List[str] = [
-        "http://localhost:8501",    # Streamlit dev
-        "http://localhost:5173",    # Vite / React dev
-        "http://127.0.0.1:8501",
-        "https://capstone-project-unfc-ashen.vercel.app",
-        "https://capstone-project-unfc.vercel.app",
-    ]
+    # ── Supabase (required) ───────────────────────────────────────────────
+    SUPABASE_URL: str = Field(..., description="Supabase project URL")
+    SUPABASE_KEY: str = Field(..., description="Supabase anon or service-role key")
+
+    # ── CORS ──────────────────────────────────────────────────────────────
+    # Optional extra origin injected by the hosting environment.
+    FRONTEND_URL: str = ""
 
     @property
     def CORS_ORIGINS(self) -> List[str]:
-        """Return the allowed CORS origins, injecting FRONTEND_URL if set."""
-        origins = list(self._DEFAULT_ORIGINS)
-        frontend_url = os.environ.get("FRONTEND_URL")
-        if frontend_url:
-            origins.append(frontend_url)
+        """
+        Build the full CORS allow-list.
+
+        Hard-coded dev origins plus the optional ``FRONTEND_URL`` env var.
+
+        Returns:
+            List of allowed origin strings.
+        """
+        origins: List[str] = [
+            "http://localhost:5173",   # Vite / React dev server
+            "http://127.0.0.1:5173",
+            "http://localhost:8501",   # Streamlit (legacy)
+            "http://127.0.0.1:8501",
+            "https://capstone-project-unfc-ashen.vercel.app",
+            "https://capstone-project-unfc.vercel.app",
+        ]
+        if self.FRONTEND_URL:
+            origins.append(self.FRONTEND_URL)
         return origins
+
+    @field_validator("SUPABASE_URL")
+    @classmethod
+    def _must_not_be_empty(cls, v: str) -> str:
+        """Raise if a required URL field is blank."""
+        if not v:
+            raise ValueError("SUPABASE_URL must not be empty")
+        return v
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """
-    Return a cached singleton Settings instance.
+    Return a cached ``Settings`` singleton.
 
-    The result is cached so the env file is read only once per process.
+    The instance is created (and the ``.env`` file parsed) only once per
+    process lifetime, courtesy of ``functools.lru_cache``.
 
     Returns:
-        Settings: Application settings instance.
+        Settings: Validated application configuration.
     """
     return Settings()
