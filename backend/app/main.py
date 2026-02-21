@@ -1,112 +1,111 @@
 """
-=============================================================================
-INVESTMENT ANALYTICS API - FastAPI Backend
-=============================================================================
+app/main.py
+────────────
+FastAPI application factory.
 
-ENDPOINTS:
+All business logic lives in ``app/api/v1/endpoints/``.
+This file is intentionally slim — it wires together middleware,
+routers, and lifecycle events only.
+
+API Layout
 ----------
-GET  /                      - Health check
-GET  /assets                - List all cached assets
-GET  /prices/{symbol}       - Get historical prices for an asset
-POST /sync/{symbol}         - Fetch and cache new asset data
-POST /api/forecast/base     - Baseline EWM forecast        ← NEW
-POST /api/forecast/lstm     - LSTM neural network forecast  ← NEW
-=============================================================================
+GET  /                           Health check  (no auth)
+GET  /api/v1/assets/             List cached assets
+POST /api/v1/assets/sync/{sym}   Sync a symbol from Yahoo Finance
+GET  /api/v1/prices/{symbol}     Historical OHLCV data
+POST /api/v1/forecast/base       EWM baseline forecast
+POST /api/v1/forecast/lstm       LSTM neural-network forecast
+POST /api/v1/forecast/prophet    Facebook Prophet forecast
+
+OpenAPI docs
+------------
+- Swagger UI:  http://localhost:8000/docs
+- ReDoc:       http://localhost:8000/redoc
 """
 
-import os
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional
-from ..core.database import get_supabase_client
-from ..data_engine.data_coordinator import DataCoordinator
-from .forecast_routes import router as forecast_router          # ← NEW
+import logging
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
-# Initialize FastAPI application
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.v1.router import api_router
+from core.config import get_settings
+from core.database import get_supabase_client
+
+logger = logging.getLogger(__name__)
+
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """
+    Application startup and shutdown logic.
+
+    Startup:  Warm up the Supabase client singleton so the first request
+              doesn't pay the connection overhead.
+    Shutdown: Nothing to close (HTTP client managed by supabase-py).
+    """
+    # Startup
+    settings = get_settings()
+    logger.info(
+        "Starting %s v%s (debug=%s)",
+        settings.APP_TITLE,
+        settings.APP_VERSION,
+        settings.DEBUG,
+    )
+    try:
+        get_supabase_client()  # warm up — raises early if env vars are wrong
+        logger.info("Supabase connection verified")
+    except Exception as exc:
+        logger.error("Supabase initialisation failed: %s", exc)
+        raise
+
+    yield  # ← application runs here
+
+    # Shutdown (nothing to tear down for HTTP-based Supabase client)
+    logger.info("Shutting down %s", settings.APP_TITLE)
+
+
+# ── App factory ───────────────────────────────────────────────────────────────
+
+settings = get_settings()
+
 app = FastAPI(
-    title="Investment Analytics API",
-    description="Backend API for the Educational Investment Platform",
-    version="0.1.0"
+    title=settings.APP_TITLE,
+    version=settings.APP_VERSION,
+    description=settings.APP_DESCRIPTION,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
-# -----------------------------------------------------------------------------
-# CORS Configuration
-# -----------------------------------------------------------------------------
-origins = [
-    "http://localhost:8501",
-    "http://localhost:5173",
-    "http://127.0.0.1:8501",
-    "https://capstone-project-unfc-ashen.vercel.app",
-    "https://capstone-project-unfc.vercel.app"
-]
-
-frontend_url = os.environ.get("FRONTEND_URL")
-if frontend_url:
-    origins.append(frontend_url)
+# ── Middleware ────────────────────────────────────────────────────────────────
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# -----------------------------------------------------------------------------
-# Data Coordinator Instance
-# -----------------------------------------------------------------------------
-coordinator = DataCoordinator()
+# ── Routers ───────────────────────────────────────────────────────────────────
+
+app.include_router(api_router, prefix="/api/v1")
+
+# ── Root health-check ─────────────────────────────────────────────────────────
 
 
-# =============================================================================
-# REGISTER ROUTERS
-# =============================================================================
-app.include_router(forecast_router)                              # ← NEW
+@app.get("/", tags=["health"], summary="Health check")
+def health_check() -> dict:
+    """
+    Lightweight liveness probe.
 
-
-# =============================================================================
-# EXISTING ENDPOINTS (unchanged)
-# =============================================================================
-
-@app.get("/")
-def read_root():
-    """Health check endpoint."""
-    return {"message": "Welcome to the Investment Analytics API"}
-
-
-@app.get("/assets")
-def get_assets():
-    """Returns all assets currently cached in the database."""
-    supabase = get_supabase_client()
-    res = supabase.table("assets").select("*").execute()
-    return res.data
-
-
-@app.get("/prices/{symbol}")
-def get_prices(symbol: str):
-    """Returns historical weekly prices for a given asset."""
-    supabase = get_supabase_client()
-
-    asset_res = supabase.table("assets").select("id").eq("symbol", symbol).execute()
-    if not asset_res.data:
-        raise HTTPException(status_code=404, detail="Asset not found")
-
-    asset_id = asset_res.data[0]['id']
-
-    price_res = supabase.table("historical_prices") \
-        .select("*") \
-        .eq("asset_id", asset_id) \
-        .order("timestamp", desc=True) \
-        .execute()
-
-    return price_res.data
-
-
-@app.post("/sync/{symbol}")
-def sync_asset(symbol: str, asset_type: str = "stock"):
-    """Fetches and caches historical data for a new or existing asset."""
-    try:
-        coordinator.sync_asset(symbol, asset_type, "1wk")
-        return {"status": "success", "message": f"Synced {symbol}"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    Returns:
+        Status and current API version.
+    """
+    return {"status": "ok", "version": settings.APP_VERSION}

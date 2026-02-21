@@ -1,53 +1,55 @@
 """
-=============================================================================
-DATABASE CONNECTION - Supabase Client Factory
-=============================================================================
+core/database.py
+────────────────
+Supabase client factory with a module-level singleton.
 
-WARNING: ISOLATION BOUNDARY
----------------------------
-This module provides the Supabase client connection.
-All database access should go through this module.
+The client is created once per process (using ``functools.lru_cache``)
+and reused for every request.  All database interaction must go through
+``get_supabase_client()`` — never call ``create_client`` elsewhere.
 
-Phase 3/4 developers:
-- You should NOT need to import this directly
-- Use the API endpoints to read cached data
-- If you need raw DB access, consult the data team first
-=============================================================================
+Usage (route handler)
+---------------------
+    # Prefer injecting via the FastAPI dependency in app/api/dependencies.py:
+    from app.api.dependencies import get_db
+    from fastapi import Depends
+
+    @router.get("/")
+    def my_route(db = Depends(get_db)):
+        return db.table("assets").select("*").execute().data
+
+Usage (non-FastAPI context, e.g. DataCoordinator)
+--------------------------------------------------
+    from core.database import get_supabase_client
+
+    client = get_supabase_client()
 """
 
-import os
-from supabase import create_client, Client
-from typing import Optional
-from dotenv import load_dotenv
+import logging
+from functools import lru_cache
 
-# Load environment variables from the root .env file
-load_dotenv()
+from supabase import Client, create_client
 
-# Supabase connection settings from environment
-SUPABASE_URL: Optional[str] = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY: Optional[str] = os.environ.get("SUPABASE_KEY")
+from core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
+@lru_cache(maxsize=1)
 def get_supabase_client() -> Client:
     """
-    Initializes and returns the Supabase client.
-    
-    This is a factory function that creates a new client connection.
-    The client is reusable for multiple queries.
-    
-    Environment Variables Required:
-        SUPABASE_URL: Your Supabase project URL
-        SUPABASE_KEY: Your Supabase anon/service key
-        
+    Return the application-wide Supabase client singleton.
+
+    The client is initialised lazily on first call and reused for all
+    subsequent calls in the same process.
+
     Returns:
-        Supabase Client instance
-        
+        Authenticated Supabase ``Client`` ready for table queries.
+
     Raises:
-        Warning if credentials are not set (will fail on first query)
+        ValueError: If ``SUPABASE_URL`` or ``SUPABASE_KEY`` are empty
+                    (caught at startup by :class:`~core.config.Settings`).
     """
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        print("⚠️  Warning: SUPABASE_URL or SUPABASE_KEY not set in environment.")
-        print("   Make sure you have a .env file with the correct values.")
-        print("   Run 'npx supabase start' to get local credentials.")
-        
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    settings = get_settings()
+    client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+    logger.info("Supabase client initialised (url=%s)", settings.SUPABASE_URL)
+    return client
