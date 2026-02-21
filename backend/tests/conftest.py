@@ -253,6 +253,47 @@ def configure_analyze_mock(
     ).return_value = MagicMock(data=price_rows)
 
 
+def configure_portfolio_mock(
+    mock_db: MagicMock,
+    asset_rows_list: List[list],
+    price_rows_list: List[list],
+) -> None:
+    """
+    Wire ``mock_db`` for the portfolio endpoints which make N asset lookups
+    followed by N price lookups (one per symbol).
+
+    The portfolio endpoint calls ``.limit().execute()`` once per symbol for
+    the asset check, and ``.order().execute()`` once per symbol for the
+    price fetch.  Both chains use ``side_effect=[...]`` so each successive
+    call returns the next item in the list.
+
+    Args:
+        mock_db:          The MagicMock Supabase client.
+        asset_rows_list:  Ordered list of asset-row payloads, one per symbol.
+                          Pass ``[{"id": "1"}]`` for found, ``[]`` for missing.
+        price_rows_list:  Ordered list of price-row payloads, one per symbol.
+    """
+    (
+        mock_db.table.return_value
+        .select.return_value
+        .eq.return_value
+        .limit.return_value
+        .execute
+    ).side_effect = [
+        MagicMock(data=rows) for rows in asset_rows_list
+    ]
+
+    (
+        mock_db.table.return_value
+        .select.return_value
+        .eq.return_value
+        .order.return_value
+        .execute
+    ).side_effect = [
+        MagicMock(data=rows) for rows in price_rows_list
+    ]
+
+
 # ── Synchronous test client (for non-async tests) ─────────────────────────────
 
 
