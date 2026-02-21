@@ -1,1 +1,30 @@
-yfinance
+# ...existing code...
+fastapi==0.95.2
+uvicorn[standard]==0.22.0
+pandas==2.1.2
+pypfopt==1.5.5
+scipy==1.11.1
+supabase==1.0.0
+pydantic==1.10.11
+python-dateutil==2.8.2
+yfinance==0.2.28
+python-dotenv==1.0.0
+scikit-learn
+# add any other libs used (tensorflow, prophet) as optional extras
+numpy>=1.24
+
+# Forecasting / ML
+# Prophet (formerly fbprophet) — used by ProphetForecaster
+prophet>=1.1.5
+# TensorFlow is optional — required only for LSTM forecasts
+tensorflow>=2.15.0; extra == "lstm"
+
+# Testing / dev
+pytest>=7.0
+pytest-asyncio>=0.22
+httpx>=0.24
+
+# Notes:
+# - `tensorflow` and `prophet` are optional heavy dependencies. Install
+#   only the models you intend to use, e.g. `pip install -r requirements.txt`
+#   plus `pip install tensorflow` or `pip install prophet` as needed.
