@@ -4,6 +4,7 @@ import "./globals.css";
 import { LocalEnvBanner } from "@/components/LocalEnvBanner";
 import Link from "next/link";
 import { Toaster } from "@/components/ui/toaster";
+import Image from "next/image";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,25 +29,32 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen flex flex-col`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen flex flex-col text-base`}
       >
         <LocalEnvBanner />
-        <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-          <div className="container flex h-14 items-center justify-between px-4">
+        <header className="sticky top-0 z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <div className="container flex h-16 items-center justify-between px-4">
             <div className="flex items-center gap-6 md:gap-10">
-              <Link href="/" className="flex items-center space-x-2">
-                <span className="font-bold inline-block">InvestAnalytics</span>
+              <Link href="/" className="flex items-center gap-3">
+                <Image
+                  src="/agent-avatar.png"
+                  alt="InvestAnalytics Mascot"
+                  width={40}
+                  height={40}
+                  className="rounded-full"
+                />
+                <span className="font-extrabold text-xl tracking-tight text-primary">InvestAnalytics</span>
               </Link>
               <nav className="flex gap-6">
                 <Link
                   href="/"
-                  className="flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  className="flex items-center text-base font-semibold text-muted-foreground transition-colors hover:text-primary"
                 >
                   Dashboard
                 </Link>
                 <Link
                   href="/portfolio"
-                  className="flex items-center text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  className="flex items-center text-base font-semibold text-muted-foreground transition-colors hover:text-primary"
                 >
                   Portfolio Builder
                 </Link>
