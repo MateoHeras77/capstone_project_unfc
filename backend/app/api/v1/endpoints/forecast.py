@@ -34,7 +34,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from supabase import Client
 
-from analytics.forecasting import LSTMForecastor, ProphetForecaster, SimpleForecaster
+from analytics.forecasting import LSTMForecastor, ProphetForecaster, SimpleForecaster, Chronos2Forecaster
 from app.api.dependencies import get_db
 from schemas.forecast import INTERVAL_CONFIG, ForecastRequest, ForecastResponse
 
@@ -227,6 +227,21 @@ def _run_prophet(prices: pd.Series, req: ForecastRequest) -> Dict[str, Any]:
     result["model_info"] = model.get_model_info()
     return result
 
+def _run_chronos2(prices: pd.Series, req: ForecastRequest) -> Dict[str, Any]:
+    """
+    Run Chronos-2 synchronously (called inside thread pool).
+    Uses req.lookback_window as a context cap for predictable latency.
+    """
+    # Optional: cap series length by lookback_window for speed
+    if req.lookback_window and len(prices) > req.lookback_window:
+        prices = prices.iloc[-req.lookback_window :]
+
+    model = Chronos2Forecaster(confidence_level=req.confidence_level)
+    model.fit(prices)
+    result = model.forecast(periods=req.periods)
+    result["model_info"] = model.get_model_info()
+    return result
+
 
 # ── endpoints ─────────────────────────────────────────────────────────────────
 
@@ -359,3 +374,24 @@ async def prophet_forecast(
         raise HTTPException(status_code=500, detail="Forecast computation failed") from exc
 
     return _build_response(result, request, len(prices))
+
+
+@router.post("/chronos2", response_model=ForecastResponse, summary="Chronos-2 foundation model forecast")
+async def chronos2_forecast(
+    request: ForecastRequest,
+    db: Client = Depends(get_db),
+) -> ForecastResponse:
+    prices = await _fetch_prices(request.symbol, db)
+    _validate_interval_minimums(prices, request.interval, request.symbol)
+
+    loop = asyncio.get_running_loop()
+    try:
+        result = await loop.run_in_executor(_executor, _run_chronos2, prices, request)
+        return _build_response(result, request, n_points=len(prices))
+    except ImportError as exc:
+        raise HTTPException(status_code=501, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Chronos-2 forecast failed")
+        raise HTTPException(status_code=500, detail=f"Forecast error: {exc}")
