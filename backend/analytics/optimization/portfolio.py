@@ -19,7 +19,15 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
-from pypfopt import EfficientFrontier, expected_returns, risk_models
+
+try:
+    from pypfopt import EfficientFrontier, expected_returns, risk_models
+    _PYPFOPT_AVAILABLE = True
+except ImportError:
+    EfficientFrontier = None  # type: ignore[misc, assignment]
+    expected_returns = None  # type: ignore[misc, assignment]
+    risk_models = None  # type: ignore[misc, assignment]
+    _PYPFOPT_AVAILABLE = False
 
 # ── Annualisation frequency mapping ──────────────────────────────────────────
 
@@ -96,6 +104,10 @@ def _mu_sigma(prices_df: pd.DataFrame, interval: str):
     Uses PyPortfolioOpt's ``mean_historical_return`` and ``sample_cov``
     with the correct annualisation frequency for the bar interval.
     """
+    if not _PYPFOPT_AVAILABLE or expected_returns is None or risk_models is None:
+        raise ImportError(
+            "PyPortfolioOpt is not installed. Install with: pip install pyportfolioopt"
+        )
     freq = _FREQ.get(interval, 52)
     mu = expected_returns.mean_historical_return(prices_df, frequency=freq)
     S = risk_models.sample_cov(prices_df, frequency=freq)
@@ -133,7 +145,12 @@ def optimize(
 
     Raises:
         ValueError: Infeasible optimization target, or unknown target string.
+        ImportError: PyPortfolioOpt (pypfopt) not installed.
     """
+    if not _PYPFOPT_AVAILABLE or EfficientFrontier is None:
+        raise ImportError(
+            "PyPortfolioOpt is not installed. Install with: pip install pyportfolioopt"
+        )
     mu, S = _mu_sigma(prices_df, interval)
 
     # Independent random lower bound per asset (5 %–15 %, feasibility-capped).
@@ -198,6 +215,10 @@ def efficient_frontier_points(
     Returns:
         List of dicts with ``volatility``, ``expected_return``, ``sharpe``.
     """
+    if not _PYPFOPT_AVAILABLE or EfficientFrontier is None:
+        raise ImportError(
+            "PyPortfolioOpt is not installed. Install with: pip install pyportfolioopt"
+        )
     mu, S = _mu_sigma(prices_df, interval)
 
     # Per-asset bounds generated once and reused across all frontier points

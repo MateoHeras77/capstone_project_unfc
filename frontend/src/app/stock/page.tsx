@@ -34,7 +34,7 @@ export default async function StockPage({
     try {
       // Fetch portfolio stats for this single asset + GOOG to bypass validation
       const symbols = upperSymbol === "GOOG" ? ["GOOG", "AAPL"] : [upperSymbol, "GOOG"];
-      stats = await api.portfolioStats({ 
+      stats = await api.portfolioStats({
         symbols,
         from_date: fromDate,
         to_date: toDate

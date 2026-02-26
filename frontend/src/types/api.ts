@@ -53,11 +53,53 @@ export interface ForecastResponse {
 export interface AnalyzeRequest {
   interval?: "1wk" | "1mo";
   periods?: number;
-  model?: "base" | "lstm" | "prophet";
+  model?: "base" | "lstm" | "prophet" | "chronos2" | "prophet_xgb";
   asset_type?: "stock" | "crypto" | "index";
   lookback_window?: number;
   epochs?: number;
   confidence_level?: number;
+}
+
+/** Forecast horizon: 1w, 2w, 3w, 4w ahead (used when interval is 1wk). */
+export type ForecastHorizonWeeks = 1 | 2 | 3 | 4;
+
+/** Error metrics from walk-forward 1-step backtest (last 20 weeks). */
+export interface ModelMetricRow {
+  model: string;
+  mae: number;
+  rmse: number;
+  mape: number;
+}
+
+/** Forecast bounds (lower, point, upper) per model for the horizon. */
+export interface ModelBoundsRow {
+  model: string;
+  lower: number[];
+  forecast: number[];
+  upper: number[];
+}
+
+export interface ForecastMetricsRequest {
+  symbol: string;
+  interval?: "1wk" | "1mo";
+  last_n_weeks?: number;
+  lookback_window?: number;
+  epochs?: number;
+  confidence_level?: number;
+  /** Horizon for forecast bounds (same as chart selection, e.g. 1–4). */
+  bounds_horizon_periods?: number;
+  /** Models to run. Omit for fast default (base+prophet). Use all four for full comparison (slower). */
+  models?: ("base" | "prophet" | "lstm" | "chronos2" | "prophet_xgb")[];
+}
+
+export interface ForecastMetricsResponse {
+  symbol: string;
+  interval: string;
+  last_n_weeks: number;
+  bounds_horizon_weeks: number;
+  metrics: ModelMetricRow[];
+  bounds: ModelBoundsRow[];
+  error?: string | null;
 }
 
 export interface AnalyzeResponse extends ForecastResponse {

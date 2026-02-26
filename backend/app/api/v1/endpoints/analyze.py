@@ -47,7 +47,13 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from supabase import Client
 
-from analytics.forecasting import LSTMForecastor, ProphetForecaster, SimpleForecaster
+from analytics.forecasting import (
+    LSTMForecastor,
+    ProphetForecaster,
+    ProphetXGBForecaster,
+    SimpleForecaster,
+    Chronos2Forecaster,
+)
 from app.api.dependencies import get_db
 from data_engine.coordinator import DataCoordinator
 from schemas.analyze import AnalyzeRequest, AnalyzeResponse, SyncSummary
@@ -238,6 +244,14 @@ def _run_model(
         )
     elif req.model == "prophet":
         model = ProphetForecaster(confidence_level=req.confidence_level)
+    elif req.model == "chronos2":
+        from analytics.forecasting.chronos2 import Chronos2Config
+        cfg = Chronos2Config()
+        if req.lookback_window:
+            cfg.context_length = req.lookback_window
+        model = Chronos2Forecaster(confidence_level=req.confidence_level, config=cfg)
+    elif req.model == "prophet_xgb":
+        model = ProphetXGBForecaster(confidence_level=req.confidence_level)
     else:  # "base" (default)
         model = SimpleForecaster(
             span=min(req.lookback_window, len(prices) - 1),

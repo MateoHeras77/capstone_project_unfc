@@ -6,6 +6,8 @@ import {
   ForecastResponse,
   AnalyzeRequest,
   AnalyzeResponse,
+  ForecastMetricsRequest,
+  ForecastMetricsResponse,
   StatsRequest,
   StatsResponse,
   OptimizeRequest,
@@ -76,9 +78,15 @@ export const api = {
   forecastBase: (data: ForecastRequest) => fetchApi<ForecastResponse>("/forecast/base", { method: "POST", body: JSON.stringify(data) }),
   forecastProphet: (data: ForecastRequest) => fetchApi<ForecastResponse>("/forecast/prophet", { method: "POST", body: JSON.stringify(data) }),
   forecastLstm: (data: ForecastRequest) => fetchApi<ForecastResponse>("/forecast/lstm", { method: "POST", body: JSON.stringify(data) }),
+  forecastChronos2: (data: ForecastRequest) => fetchApi<ForecastResponse>("/forecast/chronos2", { method: "POST", body: JSON.stringify(data) }),
+  forecastProphetXgb: (data: ForecastRequest) => fetchApi<ForecastResponse>("/forecast/prophet-xgb", { method: "POST", body: JSON.stringify(data) }),
 
-  // Analyze
+  // Analyze (auto-sync + single-model forecast)
   analyze: (symbol: string, data: AnalyzeRequest) => fetchApi<AnalyzeResponse>(`/analyze/${symbol}`, { method: "POST", body: JSON.stringify(data) }),
+
+  // Walk-forward metrics + forecast bounds (for Error Metrics Comparison and Forecast Bounds panels)
+  getForecastMetrics: (data: ForecastMetricsRequest) =>
+    fetchApi<ForecastMetricsResponse>("/forecast/metrics", { method: "POST", body: JSON.stringify(data) }),
 
   // Portfolio
   portfolioStats: (data: StatsRequest) => fetchApi<StatsResponse>("/portfolio/stats", { method: "POST", body: JSON.stringify(data) }),

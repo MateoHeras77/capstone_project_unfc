@@ -38,7 +38,7 @@ class AnalyzeRequest(BaseModel):
 
     interval: Literal["1wk", "1mo"] = "1wk"
     periods: int = Field(default=4, ge=1, le=52)
-    model: Literal["base", "lstm", "prophet"] = "base"
+    model: Literal["base", "lstm", "prophet", "chronos2", "prophet_xgb"] = "base"
     asset_type: Literal["stock", "crypto", "index"] = "stock"
     lookback_window: int = Field(default=20, ge=5, le=60)
     epochs: int = Field(default=50, ge=10, le=200)

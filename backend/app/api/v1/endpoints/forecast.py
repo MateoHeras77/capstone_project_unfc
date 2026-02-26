@@ -34,9 +34,24 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from supabase import Client
 
-from analytics.forecasting import LSTMForecastor, ProphetForecaster, SimpleForecaster, Chronos2Forecaster
+from analytics.forecasting import (
+    LSTMForecastor,
+    ProphetForecaster,
+    ProphetXGBForecaster,
+    SimpleForecaster,
+    Chronos2Forecaster,
+)
 from app.api.dependencies import get_db
-from schemas.forecast import INTERVAL_CONFIG, ForecastRequest, ForecastResponse
+from schemas.forecast import (
+    INTERVAL_CONFIG,
+    ForecastRequest,
+    ForecastResponse,
+    ForecastMetricsRequest,
+    ForecastMetricsResponse,
+    ModelMetricRow,
+    ModelBoundsRow,
+)
+from analytics.metrics import walk_forward_backtest_last_n_weeks
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -243,6 +258,23 @@ def _run_chronos2(prices: pd.Series, req: ForecastRequest) -> Dict[str, Any]:
     return result
 
 
+def _run_metrics(prices: pd.Series, req: ForecastMetricsRequest) -> Dict[str, Any]:
+    """Run walk-forward backtest and bounds; called in thread pool."""
+    models = getattr(req, "models", None)
+    bounds_horizon_periods = getattr(req, "bounds_horizon_periods", None)
+    raw = walk_forward_backtest_last_n_weeks(
+        prices,
+        interval=req.interval,
+        last_n_weeks=req.last_n_weeks,
+        lookback_window=req.lookback_window,
+        epochs=req.epochs,
+        confidence_level=req.confidence_level,
+        models=models,
+        bounds_horizon_periods=bounds_horizon_periods,
+    )
+    return raw
+
+
 # ── endpoints ─────────────────────────────────────────────────────────────────
 
 
@@ -376,6 +408,39 @@ async def prophet_forecast(
     return _build_response(result, request, len(prices))
 
 
+@router.post(
+    "/prophet-xgb",
+    response_model=ForecastResponse,
+    summary="Prophet + XGBoost forecast",
+)
+async def prophet_xgb_forecast(
+    request: ForecastRequest,
+    db: Client = Depends(get_db),
+) -> ForecastResponse:
+    """
+    Prophet trend/seasonality with XGBoost residual correction (step 1).
+    Uses a pre-trained artifact from model/experiments-pool.
+    """
+    prices = await _fetch_prices(request.symbol, db)
+    _validate_interval_minimums(prices, request.interval, request.symbol)
+
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(_executor, _run_prophet_xgb, prices, request)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Prophet+XGB artifact not found. Run the artifact-saving cell in model/experiments-pool/03-prophet-xgb-pool.ipynb.",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Prophet+XGB forecast failed for %s", request.symbol)
+        raise HTTPException(status_code=500, detail="Forecast computation failed") from exc
+
+    return _build_response(result, request, len(prices))
+
+
 @router.post("/chronos2", response_model=ForecastResponse, summary="Chronos-2 foundation model forecast")
 async def chronos2_forecast(
     request: ForecastRequest,
@@ -395,3 +460,43 @@ async def chronos2_forecast(
     except Exception as exc:
         logger.exception("Chronos-2 forecast failed")
         raise HTTPException(status_code=500, detail=f"Forecast error: {exc}")
+
+
+@router.post(
+    "/metrics",
+    response_model=ForecastMetricsResponse,
+    summary="Walk-forward 1-step backtest (last 20 weeks) + forecast bounds",
+)
+async def forecast_metrics(
+    request: ForecastMetricsRequest,
+    db: Client = Depends(get_db),
+) -> ForecastMetricsResponse:
+    """
+    Run walk-forward 1-step backtest over the last N weeks and return
+    MAE/RMSE/MAPE per model plus forecast bounds for the Error Metrics
+    Comparison and Forecast Bounds panels.
+    """
+    prices = await _fetch_prices(request.symbol, db)
+    _validate_interval_minimums(prices, request.interval, request.symbol)
+
+    loop = asyncio.get_event_loop()
+    try:
+        raw = await loop.run_in_executor(
+            _executor, _run_metrics, prices, request,
+        )
+    except Exception as exc:
+        logger.exception("Metrics computation failed for %s", request.symbol)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    metrics = [ModelMetricRow(**m) for m in raw.get("metrics", [])]
+    bounds = [ModelBoundsRow(**b) for b in raw.get("bounds", [])]
+    return ForecastMetricsResponse(
+        symbol=request.symbol,
+        interval=request.interval,
+        last_n_weeks=raw.get("last_n_weeks", request.last_n_weeks),
+        bounds_horizon_weeks=raw.get("bounds_horizon_weeks", 12),
+        metrics=metrics,
+        bounds=bounds,
+        error=raw.get("error"),
+    )
+

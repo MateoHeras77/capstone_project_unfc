@@ -81,11 +81,23 @@ class Chronos2Forecaster(BaseForecastor):
         if not self._is_fitted or self._prices is None:
             raise ValueError("Call fit() before forecast()")
 
-        # Build DataFrame in the shape Chronos2Pipeline.predict_df expects
+        # Chronos predict_df infers frequency from the timestamp column; irregular
+        # or missing freq raises "Could not infer frequency for series <item_id>".
+        # Build a regular time index with the same length and step so inference succeeds.
+        step_days = BaseForecastor._infer_freq_days(self._prices.index)
+        start = pd.Timestamp(self._prices.index[0])
+        if start.tz is not None:
+            start = start.tz_localize(None)
+        regular_index = pd.date_range(
+            start=start,
+            periods=len(self._prices),
+            freq=pd.offsets.Day(step_days),
+        )
+
         df = pd.DataFrame(
             {
                 "item_id": "series",
-                "timestamp": pd.to_datetime(self._prices.index),
+                "timestamp": regular_index,
                 "target": self._prices.values.astype(float),
             }
         )

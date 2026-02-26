@@ -5,7 +5,7 @@ All three forecast endpoints (base, LSTM, Prophet) share identical I/O
 shapes so the frontend only needs to change the URL to switch models.
 """
 
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -96,3 +96,67 @@ class ForecastResponse(BaseModel):
     upper_bound: List[float]
     confidence_level: float
     model_info: Dict[str, Any]
+
+
+# ---------------------------------------------------------------------------
+# Walk-forward metrics (Error Metrics Comparison + Forecast Bounds)
+# ---------------------------------------------------------------------------
+
+
+class ForecastMetricsRequest(BaseModel):
+    """Request for walk-forward 1-step backtest and forecast bounds."""
+
+    symbol: str
+    interval: Literal["1wk", "1mo"] = "1wk"
+    last_n_weeks: int = Field(default=20, ge=5, le=52, description="Walk-forward test window size")
+    lookback_window: int = Field(default=20, ge=5, le=60)
+    epochs: int = Field(default=30, ge=10, le=200)
+    confidence_level: float = Field(default=0.95, ge=0.5, le=0.99)
+    models: Optional[List[Literal["base", "prophet", "lstm", "chronos2"]]] = Field(
+        default=None,
+        description="Models to run. Default is base+prophet only for faster response; use all four for full comparison.",
+    )
+    bounds_horizon_periods: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=52,
+        description="Forecast bounds horizon (number of periods). If not set, uses 12 for 1wk and 4 for 1mo. Should match the chart's selected horizon.",
+    )
+
+    @field_validator("symbol")
+    @classmethod
+    def normalise_symbol(cls, v: str) -> str:
+        v = v.strip().upper()
+        if not v:
+            raise ValueError("symbol must not be empty")
+        return v
+
+
+class ModelMetricRow(BaseModel):
+    """One row in the error metrics comparison table."""
+
+    model: str
+    mae: float
+    rmse: float
+    mape: float
+
+
+class ModelBoundsRow(BaseModel):
+    """Forecast bounds for one model (lower, point, upper) over the horizon."""
+
+    model: str
+    lower: List[float]
+    forecast: List[float]
+    upper: List[float]
+
+
+class ForecastMetricsResponse(BaseModel):
+    """Response for walk-forward metrics and forecast bounds."""
+
+    symbol: str
+    interval: str
+    last_n_weeks: int
+    bounds_horizon_weeks: int
+    metrics: List[ModelMetricRow]
+    bounds: List[ModelBoundsRow]
+    error: str | None = None

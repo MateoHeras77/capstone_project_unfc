@@ -1,0 +1,25 @@
+# Minimal backend deps: no PyPortfolioOpt (avoids ecos/cvxpy build issues on Windows).
+# Use this if: pip install -r requirements.txt fails with "Failed to build wheel for ecos".
+# Forecasting, assets, prices, and analyze endpoints work. Portfolio endpoints will fail.
+
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+supabase>=2.4.0
+python-dotenv>=1.0.0
+yfinance>=0.2.36
+pandas>=2.0.0
+numpy>=1.26.0
+scikit-learn>=1.4.0
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+httpx>=0.27.0
+scipy>=1.13.1
+
+# Optional: uncomment for Prophet (can be heavy to build)
+# prophet>=1.1.5
+
+# Optional: uncomment for Chronos-2 + XGBoost (large downloads)
+# chronos-forecasting>=2.0
+# torch>=2.1
+# accelerate>=0.26
+# xgboost>=2.0

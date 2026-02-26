@@ -12,6 +12,7 @@ Requires
 """
 
 import logging
+from datetime import timedelta
 from typing import Any, Dict, List
 
 import pandas as pd
@@ -112,8 +113,29 @@ class ProphetForecaster(BaseForecastor):
         prediction = self._model.predict(future)
         forecast_rows = prediction.tail(periods)
 
+        last_date = self._prices.index[-1]
+        if last_date.tz is not None:
+            last_date = last_date.tz_localize(None)
+        step = timedelta(days=self._freq_days)
+        raw_dates = forecast_rows["ds"].tolist()
+        # Ensure forecast dates are strictly after last training date (fixes
+        # Prophet versions or freq quirks that can yield past dates).
+        dates = []
+        for i, d in enumerate(raw_dates):
+            pd_ts = pd.Timestamp(d)
+            if pd_ts.tz is not None:
+                pd_ts = pd_ts.tz_localize(None)
+            if pd_ts <= last_date:
+                pd_ts = last_date + step * (i + 1)
+            dates.append(pd_ts.strftime("%Y-%m-%dT%H:%M:%S"))
+        if not dates:
+            dates = [
+                (last_date + step * (i + 1)).strftime("%Y-%m-%dT%H:%M:%S")
+                for i in range(periods)
+            ]
+
         return {
-            "dates": forecast_rows["ds"].dt.strftime("%Y-%m-%dT%H:%M:%S").tolist(),
+            "dates": dates,
             "point_forecast": forecast_rows["yhat"].round(4).tolist(),
             "lower_bound": forecast_rows["yhat_lower"].round(4).tolist(),
             "upper_bound": forecast_rows["yhat_upper"].round(4).tolist(),

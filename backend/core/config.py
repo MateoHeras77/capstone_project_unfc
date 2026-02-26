@@ -24,11 +24,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Resolve the backend/ directory so relative .env paths work from any cwd.
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
+_PROJECT_ROOT = _BACKEND_DIR.parent
 
 
 class Settings(BaseSettings):
     """
     Application settings loaded from environment variables / ``.env`` file.
+
+    Looks for ``.env`` in project root first, then in ``backend/``, so you can
+    keep a single ``.env`` at the repo root when running from either place.
 
     Attributes:
         APP_TITLE:       Human-readable API name shown in OpenAPI docs.
@@ -41,7 +45,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=str(_BACKEND_DIR / ".env"),
+        env_file=[str(_PROJECT_ROOT / ".env"), str(_BACKEND_DIR / ".env")],
         env_file_encoding="utf-8",
         case_sensitive=True,
         # Extra env vars are ignored — don't raise on unexpected keys.
