@@ -17,6 +17,11 @@ from pydantic import BaseModel, Field, field_validator
 # label_plural    – used in human-readable horizon strings (n > 1 periods).
 # ---------------------------------------------------------------------------
 INTERVAL_CONFIG: Dict[str, Dict[str, Any]] = {
+    "1d": {
+        "min_samples": 60,   # ~3 months of trading days — enough for valid stats
+        "label_singular": "day",
+        "label_plural": "days",
+    },
     "1wk": {
         "min_samples": 52,
         "label_singular": "week",
@@ -51,8 +56,8 @@ class ForecastRequest(BaseModel):
     """
 
     symbol: str
-    interval: Literal["1wk", "1mo"] = "1wk"
-    periods: int = Field(default=4, ge=1, le=52)
+    interval: Literal["1d", "1wk", "1mo"] = "1d"
+    periods: int = Field(default=4, ge=1, le=365)
     lookback_window: int = Field(default=20, ge=5, le=60)
     epochs: int = Field(default=50, ge=10, le=200)
     confidence_level: float = Field(default=0.95, ge=0.5, le=0.99)
@@ -72,10 +77,11 @@ class ForecastResponse(BaseModel):
 
     Attributes:
         symbol:                 Ticker the forecast was built for.
-        interval:               Bar interval used (``1wk`` or ``1mo``).
+        interval:               Bar interval used (``1d``, ``1wk``, or ``1mo``).
         periods_ahead:          Number of future steps forecasted.
         forecast_horizon_label: Human-readable horizon string
-                                (e.g. ``"4 weeks (~1 month ahead)"``).
+                                (e.g. ``"10 days (~2 weeks ahead)"`` for daily,
+                                ``"4 weeks (~1 month ahead)"`` for weekly).
         data_points_used:       Historical rows the model trained on.
         dates:                  ISO-8601 dates for each forecast period.
         point_forecast:         Central estimate for each period.

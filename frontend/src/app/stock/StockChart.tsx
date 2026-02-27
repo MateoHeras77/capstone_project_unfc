@@ -32,7 +32,7 @@ interface StockChartProps {
 
 export function StockChart({ symbol, initialPrices }: StockChartProps) {
   const [model, setModel] = useState<"base" | "prophet" | "lstm">("base");
-  const [interval, setInterval] = useState<"1wk" | "1mo">("1wk");
+  const [interval, setInterval] = useState<"1d" | "1wk" | "1mo">("1d");
   const [forecast, setForecast] = useState<AnalyzeResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
@@ -40,34 +40,61 @@ export function StockChart({ symbol, initialPrices }: StockChartProps) {
   // Reverse prices to be chronological for the chart
   let baseData = [...initialPrices].reverse();
 
-  // If monthly interval is selected, aggregate weekly data into monthly means
-  if (interval === "1mo") {
-    const monthlyGroups: Record<string, { sum: number; count: number; date: string }> = {};
-    
-    baseData.forEach((p) => {
-      const d = new Date(p.timestamp);
-      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (!monthlyGroups[monthKey]) {
-        monthlyGroups[monthKey] = { sum: 0, count: 0, date: p.timestamp };
+  // Helper: group daily data by a key and return mean close per group.
+  // Returned array is sorted chronologically by first-seen key.
+  function aggregateByKey(
+    data: PriceOut[],
+    keyFn: (d: Date) => string
+  ): PriceOut[] {
+    const order: string[] = [];
+    const groups: Record<string, { sum: number; count: number; first: PriceOut }> = {};
+    data.forEach((p) => {
+      const key = keyFn(new Date(p.timestamp));
+      if (!groups[key]) {
+        groups[key] = { sum: 0, count: 0, first: p };
+        order.push(key);
       }
-      monthlyGroups[monthKey].sum += p.close_price;
-      monthlyGroups[monthKey].count += 1;
+      groups[key].sum += p.close_price;
+      groups[key].count += 1;
     });
-
-    baseData = Object.values(monthlyGroups).map((group) => ({
-      ...baseData[0],
-      timestamp: group.date,
-      close_price: group.sum / group.count,
+    // Use insertion-order array to guarantee chronological output.
+    return order.map((key) => ({
+      ...groups[key].first,
+      close_price: groups[key].sum / groups[key].count,
     }));
   }
 
+  // Returns a stable Monday-anchored ISO week string "YYYY-Www".
+  function isoWeekKey(d: Date): string {
+    // Copy date and shift to the nearest Monday (start of ISO week).
+    const day = new Date(d);
+    const dow = day.getUTCDay(); // 0=Sun … 6=Sat
+    const diff = dow === 0 ? -6 : 1 - dow; // shift to Monday
+    day.setUTCDate(day.getUTCDate() + diff);
+    const yyyy = day.getUTCFullYear();
+    const mm = String(day.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(day.getUTCDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`; // one key per calendar week
+  }
+
+  // Aggregate daily data into weekly or monthly means.
+  if (interval === "1wk") {
+    baseData = aggregateByKey(baseData, isoWeekKey);
+  } else if (interval === "1mo") {
+    baseData = aggregateByKey(
+      baseData,
+      (d) =>
+        `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
+    );
+  }
+
   const chartData: Array<{
-    date: string;
+    date: string;   // raw ISO string — formatted on the fly for axis/tooltip
     price: number;
     lower?: number;
     upper?: number;
   }> = baseData.map((p) => ({
-    date: new Date(p.timestamp).toLocaleDateString(),
+    date: p.timestamp,  // keep raw ISO so tickFormatter can vary by interval
     price: p.close_price,
   }));
 
@@ -75,13 +102,41 @@ export function StockChart({ symbol, initialPrices }: StockChartProps) {
   if (forecast) {
     forecast.dates.forEach((dateStr, i) => {
       chartData.push({
-        date: new Date(dateStr).toLocaleDateString(),
+        date: dateStr,
         price: forecast.point_forecast[i],
         lower: forecast.lower_bound[i],
         upper: forecast.upper_bound[i],
       });
     });
   }
+
+  // ── X-axis label format varies by interval ────────────────────────────
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun",
+                  "Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  function formatXAxis(iso: string): string {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    const mon = MONTHS[d.getUTCMonth()];
+    const day = d.getUTCDate();
+    const yr  = String(d.getUTCFullYear()).slice(2); // "26"
+    if (interval === "1mo") return `${mon} '${yr}`;  // "Feb '26"
+    if (interval === "1wk") return `${mon} ${day}`;  // "Feb 23"
+    return `${mon} ${day}`;                           // "Feb 23" (daily)
+  }
+
+  function formatTooltipLabel(iso: string): string {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    const mon  = MONTHS[d.getUTCMonth()];
+    const day  = d.getUTCDate();
+    const year = d.getUTCFullYear();
+    if (interval === "1mo") return `${mon} ${year}`;
+    return `${mon} ${day}, ${year}`;
+  }
+
+  // Widen tick spacing for denser intervals so labels don't overlap.
+  const minTickGap = interval === "1d" ? 60 : interval === "1wk" ? 50 : 40;
 
   const handleAnalyze = async () => {
     setIsLoading(true);
@@ -111,41 +166,48 @@ export function StockChart({ symbol, initialPrices }: StockChartProps) {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-4 items-center justify-between">
         <div className="flex gap-2">
-          <Select
-            value={model}
-            onValueChange={(val: any) => setModel(val)}
-          >
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="Select Model" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="base">Base (EWM)</SelectItem>
-              <SelectItem value="prophet">Prophet</SelectItem>
-              <SelectItem value="lstm">LSTM</SelectItem>
-            </SelectContent>
-          </Select>
+          <div id="tour-stock-model">
+            <Select
+              value={model}
+              onValueChange={(val: any) => setModel(val)}
+            >
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Select Model" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="base">Base (EWM)</SelectItem>
+                <SelectItem value="prophet">Prophet</SelectItem>
+                <SelectItem value="lstm">LSTM</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-          <Select
-            value={interval}
-            onValueChange={(val: any) => {
-              setInterval(val);
-              setForecast(null);
-            }}
-          >
-            <SelectTrigger className="w-[120px]">
-              <SelectValue placeholder="Interval" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="1wk">Weekly</SelectItem>
-              <SelectItem value="1mo">Monthly</SelectItem>
-            </SelectContent>
-          </Select>
+          <div id="tour-stock-interval">
+            <Select
+              value={interval}
+              onValueChange={(val: any) => {
+                setInterval(val);
+                setForecast(null);
+              }}
+            >
+              <SelectTrigger className="w-[120px]">
+                <SelectValue placeholder="Interval" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1d">Daily</SelectItem>
+                <SelectItem value="1wk">Weekly</SelectItem>
+                <SelectItem value="1mo">Monthly</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
-        <Button onClick={handleAnalyze} disabled={isLoading}>
-          {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Generate Forecast
-        </Button>
+        <div id="tour-stock-forecast-btn">
+          <Button onClick={handleAnalyze} disabled={isLoading}>
+            {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Generate Forecast
+          </Button>
+        </div>
       </div>
 
       <div className="h-[400px] w-full mt-4">
@@ -157,7 +219,8 @@ export function StockChart({ symbol, initialPrices }: StockChartProps) {
               tickLine={false}
               axisLine={false}
               tickMargin={8}
-              minTickGap={32}
+              minTickGap={minTickGap}
+              tickFormatter={formatXAxis}
             />
             <YAxis
               domain={["auto", "auto"]}
@@ -167,7 +230,16 @@ export function StockChart({ symbol, initialPrices }: StockChartProps) {
             />
             <Tooltip
               formatter={(value: number) => [`$${value.toFixed(2)}`, "Price"]}
-              labelClassName="font-bold text-foreground"
+              labelFormatter={(label) => formatTooltipLabel(label)}
+              contentStyle={{
+                backgroundColor: "#0f172a",
+                border: "1px solid rgba(0,212,255,0.25)",
+                borderRadius: "8px",
+                color: "#f1f5f9",
+              }}
+              labelStyle={{ color: "#22d3ee", fontWeight: 700, marginBottom: 4 }}
+              itemStyle={{ color: "#f1f5f9" }}
+              cursor={{ stroke: "rgba(0,212,255,0.3)", strokeWidth: 1 }}
             />
             <Line
               type="monotone"
